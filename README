@@ -1,0 +1,50 @@
+Piconet is Mininet clone.
+
+I personally found Mininet code quite convoluted, complex, and unnecessarily
+big. Also I wanted to use Open vSwitch which at the time of writing is not
+available out of box.
+
+So to create a better alternative this is my first try to create a base.
+
+So here is how to use Piconet.
+
+Install the following: python2.6, python-unshare, openvswitch, and
+bridge-utils
+
+bridge-utils and Open vSwitch have conflicts at runtime. They use kernel
+modules which conflict.
+
+Use "modprobe bridge" to load up the bridge kernel module. To use the Linux
+bridge L2 switch module there is no need for any extra configuration. Although
+on my system the L2 switches take some time before they start forwarding
+packets; so try to stay calm if you don't see ping packets for a couple of
+minutes; then really panic.
+
+To use Open vSwitch, setup the system as mentioned in its installation manual
+INSTALL.Linux. The Piconet Open vSwitch module uses ovs-vsctl for everything.
+
+I don't really use ssl because most of the stuff is expected to be running on a
+single system. I use the following commands to get ovs-vswitchd started.
+
+ovsdb-server /usr/local/etc/openvswitch/conf.db \
+	--remote=punix:/usr/local/var/run/openvswitch/db.sock \
+	--pidfile --detach
+
+ovs-vswitchd unix:/usr/local/var/run/openvswitch/db.sock \
+	--pidfile --detach
+
+The next step I think would be to add topology generators for Piconet. I don't
+think I am going to add support for a Mininet like shell. Currently to drop
+into an interactive shell one can use the code module of python. I generally
+write the initialization script and execute it with ipython's %run.
+
+After the topology generator I will to write a X forwarder to support
+independent shells. I have quite a dislike for Mininet's screen hack.
+
+This is aimed to be a very concise piece of software. So to learn more read
+the code. To give a quick start; we use multiprocessing module to create
+easily communicate able python processes which then unshare their network
+namespace and keep executing commands sent to them.
+
+Checkout scratchnet.py for a minimal setup.
+
