@@ -7,9 +7,11 @@ Depends on the python-unshare module for creating separate network namespace.
 from multiprocessing import Process, JoinableQueue
 from subprocess import Popen
 
+import signal
+from signal import SIG_IGN, SIGINT, SIGQUIT
+
 import os
 import atexit
-import signal
 
 from unshare import unshare, CLONE_NEWNET
 
@@ -50,6 +52,9 @@ class ProcNS(object):
         background processes, and waits for them to finish.
         """
 
+        signal.signal(SIGINT, SIG_IGN)
+        signal.signal(SIGQUIT, SIG_IGN)
+
         procs = {}
         devnull = open(os.devnull, "r+")
 
@@ -78,6 +83,7 @@ class ProcNS(object):
                     print "[{0}] Started".format(proc.pid)
 
                     procs[proc.pid] = proc
+
             except OSError as e:
                 print "Error executing: {0} {1}".format(args, kwargs)
                 print e
@@ -97,8 +103,14 @@ class ProcNS(object):
         process the caller calls communicate() for it to finish.
         """
 
+        int_handler = signal.signal(SIGINT, SIG_IGN)
+        quit_handler = signal.signal(SIGQUIT, SIG_IGN)
+
         self.queue.put((FOREGROUND, args, kwargs))
         self.queue.join()
+
+        signal.signal(SIGINT, int_handler)
+        signal.signal(SIGQUIT, quit_handler)
 
     def call_bg(self, *args, **kwargs):
         """Execute a command in process namespace and dont wait
