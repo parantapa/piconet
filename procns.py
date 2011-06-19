@@ -56,7 +56,7 @@ class ProcNS(object):
         signal.signal(SIGQUIT, SIG_IGN)
 
         procs = {}
-        devnull = open(os.devnull, "r+")
+        fds["/dev/null"] = open("/dev/null", "r+")
 
         while True:
             todo, args, kwargs = self.queue.get()
@@ -71,14 +71,15 @@ class ProcNS(object):
                 return
 
             try:
+                for kw in ["stdin", "stdout", "stderr"]:
+                    if kw in kwargs and kwargs[kw] in fds:
+                        kwargs[kw] = fds[kwargs[kw]]
+
                 if todo == FOREGROUND:
                     proc = Popen(*args, **kwargs)
                     proc.communicate()
-                elif todo == BACKGROUND:
-                    kwargs["stdin"] = devnull
-                    kwargs["stdout"] = devnull
-                    kwargs["stderr"] = devnull
 
+                elif todo == BACKGROUND:
                     proc = Popen(*args, **kwargs)
                     print "[{0}] Started".format(proc.pid)
 
@@ -122,6 +123,10 @@ class ProcNS(object):
         Note: stdin, stdout, and stderr are redirected to /dev/null
         """
 
+        for kw in ["stdin", "stdout", "stderr"]:
+            if kw not in kwargs:
+                kwargs[kw] = "/dev/null"
+
         self.queue.put((BACKGROUND, args, kwargs))
         self.queue.join()
 
@@ -141,7 +146,7 @@ class NetNS(ProcNS):
 
     Commands executed in context of this see a different network namespace.  
     """
-    
+
     def boot(self):
         """Boot into a new network namespace"""
 

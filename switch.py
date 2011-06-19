@@ -20,7 +20,7 @@ class Bridge(object):
         self.id = id
         self.links = {}
 
-        self.dev = "br" + Bridge.devnum
+        self.dev = "br{0}".format(Bridge.devnum)
         Bridge.devnum += 1
 
         cmd = "brctl addbr {0}"
@@ -52,6 +52,8 @@ class Bridge(object):
         Automatically called on exit.
         """
 
+        print "Removing switch {0} ...".format(self.id)
+
         cmd = "ifconfig {0} down"
         call(cmd.format(self.dev), shell=True)
         
@@ -76,7 +78,7 @@ class OpenVSwitch(object):
         self.id = id
         self.links = {}
         
-        self.dev = "br" + OpenVSwitch.devnum
+        self.dev = "br{0}".format(OpenVSwitch.devnum)
         OpenVSwitch.devnum += 1
 
         cmd = "ovs-vsctl add-br {0}"
@@ -104,6 +106,8 @@ class OpenVSwitch(object):
 
         Automatically called on exit.
         """
+        
+        print "Removing switch {0} ...".format(self.id)
 
         cmd = "ovs-vsctl del-br {0}"
         call(cmd.format(self.dev), shell=True)

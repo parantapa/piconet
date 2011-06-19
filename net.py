@@ -8,6 +8,7 @@ moved to module switch.
 from subprocess import call
 from procns import NetNS
 
+import sys
 import atexit
 
 def id_to_tup(id):
@@ -60,6 +61,10 @@ class Host(NetNS):
 
         cmd = "ip link set {0} netns {1}"
         call(cmd.format(devname, self.main.pid), shell=True)
+
+    def shutdown(self):
+        print "Removing host {0} ...".format(self.id)
+        NetNS.shutdown(self)
 
     def config_lo(self):
         """Configure the loopback device"""
@@ -132,8 +137,8 @@ class Network(object):
         if linkid in self.links:
             raise ValueError("Duplicate linkid %s" % linkid)
 
-        dev1 = "{0}-eth{1}".format(nid1, linkid)
-        dev2 = "{0}-eth{1}".format(nid2, linkid)
+        dev1 = "{0}-{1}".format(nid1, linkid)
+        dev2 = "{0}-{1}".format(nid2, linkid)
         
         self.links[linkid] = (dev1, dev2) 
 
@@ -153,7 +158,14 @@ class Network(object):
         exit.
         """
 
+        print "Removing",
+        sys.stdout.flush()
+
         cmd = "ip link delete {0} 2> /dev/null"
-        for dev1, dummy in self.links.itervalues():
-            call(cmd.format(dev1), shell=True)
+        for devid, devs in self.links.iteritems():
+            print "{0} ...".format(devid),
+            sys.stdout.flush()
+            call(cmd.format(devs[0]), shell=True)
+
+        print ""
 
