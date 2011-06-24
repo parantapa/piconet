@@ -8,8 +8,7 @@ So to create a better alternative this is my first try to create a base.
 
 So here is how to use Piconet.
 
-Install the following: python2.6, python-unshare, openvswitch, and
-bridge-utils
+Install the following: python2.6, openvswitch, and bridge-utils
 
 bridge-utils and Open vSwitch have conflicts at runtime. They use kernel
 modules which conflict.

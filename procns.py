@@ -13,11 +13,13 @@ from signal import SIG_IGN, SIGINT, SIGQUIT
 import os
 import atexit
 
-from unshare import unshare, CLONE_NEWNET
+from ctypes import cdll
 
 FOREGROUND = 1
 BACKGROUND = 2
 SHUTDOWN = 10
+
+CLONE_NEWNET = 0x40000000
 
 def exit_msg(proc):
     """Return human readable exit message"""
@@ -150,6 +152,8 @@ class NetNS(ProcNS):
     def boot(self):
         """Boot into a new network namespace"""
 
-        unshare(CLONE_NEWNET)
+        libc = cdll.LoadLibrary("libc.so.6")
+        libc.unshare(CLONE_NEWNET)
+
         ProcNS.boot(self)
 
