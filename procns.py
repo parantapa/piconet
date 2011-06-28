@@ -1,7 +1,8 @@
-"""Process Namespace
+"""Execute commands in context of different network namespaces
 
-Create python processes to execute external commands in that namespace.
-Depends on the python-unshare module for creating separate network namespace.
+Provides the ProcNS class which can be used execute commands in a different
+Linux network namespace. This module depends on the availability of the
+unshare function being exported by libc.
 """
 
 from multiprocessing import Process, JoinableQueue
@@ -10,150 +11,182 @@ from subprocess import Popen
 import signal
 from signal import SIG_IGN, SIGINT, SIGQUIT
 
-import os
-import atexit
+import ctypes
 
-from ctypes import cdll
+SHUTDOWN = 1
+EXECUTE = 2
 
-FOREGROUND = 1
-BACKGROUND = 2
-SHUTDOWN = 10
+DEV_NULL = open("/dev/null", "r+")
 
+LIBC_DLL = "libc.so.6"
 CLONE_NEWNET = 0x40000000
 
-def exit_msg(proc):
+def exit_msg(pid, returncode):
     """Return human readable exit message"""
 
-    if proc.returncode is None:
-        return "[{0}] Running".format(proc.pid)
-    elif proc.returncode < 0:
+    if returncode is None:
+        return "[%d] Running" % pid
+    elif returncode < 0:
         for name, val in signal.__dict__.iteritems():
-            if name.startswith("SIG") and val == -proc.returncode:
-                return "[{0}] Killed {1}".format(proc.pid, name)
-        return "[{0}] Killed Signal({1})".format(proc.pid, -proc.returncode)
+            if name.startswith("SIG") and val == -returncode:
+                return "[%d] Killed %s" % (pid, name)
+        return "[%d] Killed Signal(%d)" % (pid, -returncode)
     else:
-        return "[{0}] Done {1}".format(proc.pid, proc.returncode)
+        return "[%d] Done %d" % (pid, returncode)
 
-class ProcNS(object):
-    """New process namespace
+def unshare_net():
+    """Unshare the network namespace"""
 
-    New commands can be executed in the context of this process.
+    libc = ctypes.cdll.LoadLibrary(LIBC_DLL)
+    libc.unshare(CLONE_NEWNET)
+
+class RootNS(object):
+    """Root network namespace
+
+    New commands can be executed in context of root network namespace
     """
 
     def __init__(self):
-        self.main = Process(target=self.boot)
-        self.queue = JoinableQueue()
+        self.jobs = {}
 
-        atexit.register(self.shutdown)        
-        self.main.start()
+    def __enter__(self):
+        return self
 
-    def boot(self):
-        """Start the process namespace
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
         
-        The main function which executes the commands, keeps record of
-        background processes, and waits for them to finish.
+    def _call(self, cmd, shell=True, fg=True):
+        """Execute a command
+
+        cmd   - The command to be executed.
+        shell - If true execute as a shell command.
+        fg    - If true run in foreground.
         """
 
-        signal.signal(SIGINT, SIG_IGN)
-        signal.signal(SIGQUIT, SIG_IGN)
+        if fg:
+            stdin, stdout, stderr = None, None, None
+        else:
+            stdin, stdout, stderr = DEV_NULL, DEV_NULL, DEV_NULL
 
-        procs = {}
-        fds["/dev/null"] = open("/dev/null", "r+")
+        try:
+            proc = Popen(cmd, shell=shell, stdin=stdin,
+                    stdout=stdout, stderr=stderr)
+        except OSError as e:
+            print "Error executing: %s\n%s" % (cmd, e)
+            return
 
-        while True:
-            todo, args, kwargs = self.queue.get()
+        if fg:
+            proc.communicate()
+        else:
+            print "[%d] Started" % proc.pid
+            self.jobs[proc.pid] = proc
 
-            if todo == SHUTDOWN:
-                for pid, proc in procs.iteritems():
-                    if proc.poll() is None:
-                        proc.terminate()
+    def _wait(self, killall=False):
+        """Wait for any finished background process
+
+        killall - If true terminate all processes before waiting on them.
+        """
+
+        if killall:
+            for pid, proc in self.jobs.iteritems():
+                if proc.poll() is None:
+                    proc.terminate()
                     proc.wait()
-                    print exit_msg(proc)
-                self.queue.task_done()
-                return
 
-            try:
-                for kw in ["stdin", "stdout", "stderr"]:
-                    if kw in kwargs and kwargs[kw] in fds:
-                        kwargs[kw] = fds[kwargs[kw]]
+        for pid, proc in self.jobs.items():
+            if proc.poll() is not None:
+                print exit_msg(proc.pid, proc.returncode)
+                del self.jobs[pid]
 
-                if todo == FOREGROUND:
-                    proc = Popen(*args, **kwargs)
-                    proc.communicate()
+    def call(self, cmd, shell=True, fg=True):
+        """Execute a command
 
-                elif todo == BACKGROUND:
-                    proc = Popen(*args, **kwargs)
-                    print "[{0}] Started".format(proc.pid)
-
-                    procs[proc.pid] = proc
-
-            except OSError as e:
-                print "Error executing: {0} {1}".format(args, kwargs)
-                print e
-
-            for pid, proc in procs.items():
-                if proc.poll() is not None:
-
-                    print exit_msg(proc)
-                    del procs[pid]
-
-            self.queue.task_done()
-
-    def call(self, *args, **kwargs):
-        """Execute a command in process namespace and wait
-
-        Arguments are same as that of subprocess.Popen. After creating the
-        process the caller calls communicate() for it to finish.
+        cmd   - The command to be executed.
+        shell - If true execute the command in a shell.
+        fg    - If true execute the command in foreground.
         """
 
         int_handler = signal.signal(SIGINT, SIG_IGN)
         quit_handler = signal.signal(SIGQUIT, SIG_IGN)
 
-        self.queue.put((FOREGROUND, args, kwargs))
-        self.queue.join()
+        try:
+            self._call(cmd, shell, fg)
+        finally:
+            signal.signal(SIGINT, int_handler)
+            signal.signal(SIGQUIT, quit_handler)
 
-        signal.signal(SIGINT, int_handler)
-        signal.signal(SIGQUIT, quit_handler)
+        self._wait(False)
 
-    def call_bg(self, *args, **kwargs):
-        """Execute a command in process namespace and dont wait
+    def close(self):
+        """Close the context
 
-        Arguments are same as that of subprocess.Popen. After creating the
-        process it is stored in an internal list and checked for completion at
-        the end of every internal loop.
-
-        Note: stdin, stdout, and stderr are redirected to /dev/null
+        Kill any remaining background processes. Wait for them to finish and
+        return.
         """
 
-        for kw in ["stdin", "stdout", "stderr"]:
-            if kw not in kwargs:
-                kwargs[kw] = "/dev/null"
+        self._wait(True)
 
-        self.queue.put((BACKGROUND, args, kwargs))
-        self.queue.join()
-
-    def shutdown(self):
-        """Shutdown the process namespace
-
-        Send terminate to all processes that are still running and close the
-        process namespace.
-        """
-
-        self.queue.put((SHUTDOWN, None, None))
-        self.queue.join()
-        self.main.join()
-
-class NetNS(ProcNS):
+class ProcNS(RootNS):
     """New network namespace
 
-    Commands executed in context of this see a different network namespace.  
+    New commands can be executed in context of a new network namespace.
     """
 
-    def boot(self):
-        """Boot into a new network namespace"""
+    def __init__(self):
+        RootNS.__init__(self)
+        
+        self.queue = JoinableQueue()
+        self.main = Process(target=self._mainloop)
+        self.main.start()
 
-        libc = cdll.LoadLibrary("libc.so.6")
-        libc.unshare(CLONE_NEWNET)
+    def _mainloop(self):
+        """Start a process with new network namespace
 
-        ProcNS.boot(self)
+        This function unshares it's network namespace and loops to execute
+        commands sent to it.
+        """
+
+        unshare_net()
+
+        signal.signal(SIGINT, SIG_IGN)
+        signal.signal(SIGQUIT, SIG_IGN)
+
+        while True:
+            todo, cmd, shell, fg = self.queue.get()
+
+            if todo == SHUTDOWN:
+                self._wait(True)
+                self.queue.task_done()
+                return
+            else:
+                self._call(cmd, shell, fg)
+                self.queue.task_done()
+                
+            self._wait(False)
+
+    def call(self, cmd, shell=True, fg=True):
+        """Execute a command
+
+        Check RootNS.call.
+        """
+
+        int_handler = signal.signal(SIGINT, SIG_IGN)
+        quit_handler = signal.signal(SIGQUIT, SIG_IGN)
+
+        try:
+            self.queue.put((EXECUTE, cmd, shell, fg))
+            self.queue.join()
+        finally:
+            signal.signal(SIGINT, int_handler)
+            signal.signal(SIGQUIT, quit_handler)
+
+    def close(self):
+        """Close the process namespace
+
+        Check RootNS.close.
+        """
+
+        self.queue.put((SHUTDOWN, None, None, None))
+        self.queue.join()
+        self.main.join()
 
