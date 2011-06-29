@@ -142,6 +142,9 @@ class NetNS(RootNS):
         Check RootNS.call.
         """
 
+        if not self.main.is_alive():
+            raise RuntimeError("Remote process is dead")
+
         with block_signal():
             self.queue.put((EXECUTE, cmd, shell, fg))
             self.queue.join()
@@ -151,6 +154,10 @@ class NetNS(RootNS):
 
         Check RootNS.close.
         """
+
+        if not self.main.is_alive():
+            self.main.join()
+            return
 
         self.queue.put((SHUTDOWN, None, None, None))
         self.queue.join()
