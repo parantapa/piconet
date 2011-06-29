@@ -1,6 +1,6 @@
 """Execute commands in context of different network namespaces
 
-Provides the ProcNS class which can be used execute commands in a different
+Provides the NetNS class which can be used execute commands in a different
 Linux network namespace. This module depends on the availability of the
 unshare function being exported by libc.
 """
@@ -11,6 +11,7 @@ from subprocess import Popen
 import signal
 from signal import SIG_IGN, SIGINT, SIGQUIT, SIGKILL
 
+import os
 import ctypes
 from contextlib import contextmanager
 
@@ -38,8 +39,14 @@ def exit_msg(pid, returncode):
 def unshare_net():
     """Unshare the network namespace"""
 
-    libc = ctypes.cdll.LoadLibrary(LIBC_DLL)
-    libc.unshare(CLONE_NEWNET)
+    libc = ctypes.CDLL(LIBC_DLL, use_errno=True)
+
+    unshare = libc.unshare
+    unshare.argtypes = [ctypes.c_int]
+    unshare.restype = ctypes.c_int
+
+    if libc.unshare(CLONE_NEWNET) == -1:
+        raise OSError(os.strerror(ctypes.get_errno()))
 
 @contextmanager
 def block_signal():
@@ -133,7 +140,7 @@ class RootNS(object):
 
         self._wait(True)
 
-class ProcNS(RootNS):
+class NetNS(RootNS):
     """New network namespace
 
     New commands can be executed in context of a new network namespace.
@@ -153,7 +160,11 @@ class ProcNS(RootNS):
         commands sent to it.
         """
 
-        unshare_net()
+        try:
+            unshare_net()
+        except OSError as e:
+            print "Failed to create new network namespace\n%s" % e
+            return
 
         signal.signal(SIGINT, SIG_IGN)
         signal.signal(SIGQUIT, SIG_IGN)
