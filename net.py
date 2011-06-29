@@ -89,7 +89,7 @@ class Link(Closeable):
     def close(self):
         """Remove the veth link"""
 
-        print "Removing Link %s ..." % self.id
+        print "Removing link %s ..." % self.id
 
         cmd = "ip link delete %s 2> /dev/null"
         call(cmd % self.dev1, shell=True)

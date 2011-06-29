@@ -35,7 +35,7 @@ def unshare_net():
     unshare.argtypes = [ctypes.c_int]
     unshare.restype = ctypes.c_int
 
-    if libc.unshare(CLONE_NEWNET) == -1:
+    if unshare(CLONE_NEWNET) == -1:
         raise OSError(os.strerror(ctypes.get_errno()))
 
 @contextmanager
