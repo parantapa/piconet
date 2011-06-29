@@ -12,6 +12,7 @@ import signal
 from signal import SIG_IGN, SIGINT, SIGQUIT
 
 import ctypes
+from contextlib import contextmanager
 
 SHUTDOWN = 1
 EXECUTE = 2
@@ -39,6 +40,18 @@ def unshare_net():
 
     libc = ctypes.cdll.LoadLibrary(LIBC_DLL)
     libc.unshare(CLONE_NEWNET)
+
+@contextmanager
+def block_signal():
+    """Block SIGINT and SIGQUIT inside a contexts"""
+
+    int_handler = signal.signal(SIGINT, SIG_IGN)
+    quit_handler = signal.signal(SIGQUIT, SIG_IGN)
+
+    yield
+
+    signal.signal(SIGINT, int_handler)
+    signal.signal(SIGQUIT, quit_handler)
 
 class RootNS(object):
     """Root network namespace
@@ -106,14 +119,8 @@ class RootNS(object):
         fg    - If true execute the command in foreground.
         """
 
-        int_handler = signal.signal(SIGINT, SIG_IGN)
-        quit_handler = signal.signal(SIGQUIT, SIG_IGN)
-
-        try:
+        with block_signal():
             self._call(cmd, shell, fg)
-        finally:
-            signal.signal(SIGINT, int_handler)
-            signal.signal(SIGQUIT, quit_handler)
 
         self._wait(False)
 
@@ -152,16 +159,17 @@ class ProcNS(RootNS):
         signal.signal(SIGQUIT, SIG_IGN)
 
         while True:
-            todo, cmd, shell, fg = self.queue.get()
+            try:
+                todo, cmd, shell, fg = self.queue.get()
 
-            if todo == SHUTDOWN:
-                self._wait(True)
+                if todo == SHUTDOWN:
+                    self._wait(True)
+                    return
+                else:
+                    self._call(cmd, shell, fg)
+            finally:
                 self.queue.task_done()
-                return
-            else:
-                self._call(cmd, shell, fg)
-                self.queue.task_done()
-                
+
             self._wait(False)
 
     def call(self, cmd, shell=True, fg=True):
@@ -170,15 +178,9 @@ class ProcNS(RootNS):
         Check RootNS.call.
         """
 
-        int_handler = signal.signal(SIGINT, SIG_IGN)
-        quit_handler = signal.signal(SIGQUIT, SIG_IGN)
-
-        try:
+        with block_signal():
             self.queue.put((EXECUTE, cmd, shell, fg))
             self.queue.join()
-        finally:
-            signal.signal(SIGINT, int_handler)
-            signal.signal(SIGQUIT, quit_handler)
 
     def close(self):
         """Close the process namespace
