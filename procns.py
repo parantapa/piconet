@@ -9,7 +9,7 @@ from multiprocessing import Process, JoinableQueue
 from subprocess import Popen
 
 import signal
-from signal import SIG_IGN, SIGINT, SIGQUIT
+from signal import SIG_IGN, SIGINT, SIGQUIT, SIGKILL
 
 import ctypes
 from contextlib import contextmanager
@@ -97,13 +97,13 @@ class RootNS(object):
     def _wait(self, killall=False):
         """Wait for any finished background process
 
-        killall - If true terminate all processes before waiting on them.
+        killall - If true send SIGKILL all processes before waiting on them.
         """
 
         if killall:
             for pid, proc in self.jobs.iteritems():
                 if proc.poll() is None:
-                    proc.terminate()
+                    proc.send_signal(SIGKILL)
                     proc.wait()
 
         for pid, proc in self.jobs.items():
@@ -159,8 +159,9 @@ class ProcNS(RootNS):
         signal.signal(SIGQUIT, SIG_IGN)
 
         while True:
+            msg = self.queue.get()
             try:
-                todo, cmd, shell, fg = self.queue.get()
+                todo, cmd, shell, fg = msg
 
                 if todo == SHUTDOWN:
                     self._wait(True)
