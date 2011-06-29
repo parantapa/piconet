@@ -1,114 +1,93 @@
 """Linux based switches"""
 
 from subprocess import call
-import atexit
 
 class Bridge(object):
     """Linux based bridge L2 switch
 
-    Enable forwarding in linux kernel and iptables
+    Enable forwarding in linux kernel and iptables.
     """
 
     devnum = 0
 
     def __init__(self, id):
-        """Initialize
-
-        id - Unique switch identifier.
-        """
-
         self.id = id
         self.links = {}
 
-        self.dev = "br{0}".format(Bridge.devnum)
+        self.devname = "br%d" % Bridge.devnum
         Bridge.devnum += 1
 
-        cmd = "brctl addbr {0}"
-        call(cmd.format(self.dev), shell=True)
+        cmd = "brctl addbr %s"
+        call(cmd % self.devname, shell=True)
         
-        cmd = "ifconfig {0} up"
-        call(cmd.format(self.dev), shell=True)
+        cmd = "ifconfig %s up"
+        call(cmd % self.devname, shell=True)
         
-        atexit.register(self.shutdown)
-
     def add_link(self, devid, devname):
         """Add add a link to the switch
 
-        devid - Unique device id
+        devid   - Unique device id
         devname - Device name
         """
 
         self.links[devid] = devname
 
-        cmd = "brctl addif {0} {1}"
-        call(cmd.format(self.dev, devname), shell=True)
+        cmd = "brctl addif %s %s"
+        call(cmd % (self.devname, devname), shell=True)
 
-        cmd = "ifconfig {0} up"
-        call(cmd.format(devname), shell=True)
+        cmd = "ifconfig %s up"
+        call(cmd % devname, shell=True)
 
-    def shutdown(self):
-        """Remove the switch
+    def close(self):
+        """Remove the switch"""
 
-        Automatically called on exit.
-        """
+        print "Removing switch %s ..." % self.id
 
-        print "Removing switch {0} ...".format(self.id)
-
-        cmd = "ifconfig {0} down"
-        call(cmd.format(self.dev), shell=True)
+        cmd = "ifconfig %s down"
+        call(cmd % self.devname, shell=True)
         
-        cmd = "brctl delbr {0}"
-        call(cmd.format(self.dev), shell=True)
+        cmd = "brctl delbr %s"
+        call(cmd % self.devname, shell=True)
 
 class OpenVSwitch(object):
     """Open vSwitch based switch; Depends on ovs-vswitchd
 
     To use this configure ovs-vswitchd as described in the Open vSwitch
-    installation manual INSTALL.Linux
+    installation manual INSTALL.Linux.
     """
 
     devnum = 0
 
     def __init__(self, id):
-        """Initialize
-
-        id - Unique switch identifier.
-        """
-
         self.id = id
         self.links = {}
         
-        self.dev = "br{0}".format(OpenVSwitch.devnum)
+        self.devname = "br%d" % OpenVSwitch.devnum
         OpenVSwitch.devnum += 1
 
-        cmd = "ovs-vsctl add-br {0}"
-        call(cmd.format(self.dev), shell=True)
-
-        atexit.register(self.shutdown)
+        cmd = "ovs-vsctl add-br %s"
+        call(cmd % self.devname, shell=True)
 
     def add_link(self, devid, devname):
         """Add add a link to the switch
 
-        devid - Unique device id
+        devid   - Unique device id
         devname - Device name
         """
 
         self.links[devid] = devname
 
-        cmd = "ovs-vsctl add-port {0} {1}"
-        call(cmd.format(self.dev, devname), shell=True)
+        cmd = "ovs-vsctl add-port %s %s"
+        call(cmd % (self.devname, devname), shell=True)
 
-        cmd = "ifconfig {0} up"
-        call(cmd.format(devname), shell=True)
+        cmd = "ifconfig %s up"
+        call(cmd % devname, shell=True)
 
-    def shutdown(self):
-        """Remove the switch
+    def close(self):
+        """Remove the switch"""
 
-        Automatically called on exit.
-        """
-        
-        print "Removing switch {0} ...".format(self.id)
+        print "Removing switch %s ..." % self.id
 
-        cmd = "ovs-vsctl del-br {0}"
-        call(cmd.format(self.dev), shell=True)
+        cmd = "ovs-vsctl del-br %s"
+        call(cmd % self.devname, shell=True)
 

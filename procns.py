@@ -9,58 +9,16 @@ from multiprocessing import Process, JoinableQueue
 from subprocess import Popen
 
 import signal
-from signal import SIG_IGN, SIGINT, SIGQUIT, SIGKILL
+from signal import SIGINT, SIGQUIT, SIGKILL, SIG_IGN
 
-import os
-import ctypes
-from contextlib import contextmanager
+from misc import exit_msg, unshare_net, block_signal, Closeable
 
 SHUTDOWN = 1
 EXECUTE = 2
 
 DEV_NULL = open("/dev/null", "r+")
 
-LIBC_DLL = "libc.so.6"
-CLONE_NEWNET = 0x40000000
-
-def exit_msg(pid, returncode):
-    """Return human readable exit message"""
-
-    if returncode is None:
-        return "[%d] Running" % pid
-    elif returncode < 0:
-        for name, val in signal.__dict__.iteritems():
-            if name.startswith("SIG") and val == -returncode:
-                return "[%d] Killed %s" % (pid, name)
-        return "[%d] Killed Signal(%d)" % (pid, -returncode)
-    else:
-        return "[%d] Done %d" % (pid, returncode)
-
-def unshare_net():
-    """Unshare the network namespace"""
-
-    libc = ctypes.CDLL(LIBC_DLL, use_errno=True)
-
-    unshare = libc.unshare
-    unshare.argtypes = [ctypes.c_int]
-    unshare.restype = ctypes.c_int
-
-    if libc.unshare(CLONE_NEWNET) == -1:
-        raise OSError(os.strerror(ctypes.get_errno()))
-
-@contextmanager
-def block_signal():
-    """Block SIGINT and SIGQUIT inside a contexts"""
-
-    int_handler = signal.signal(SIGINT, SIG_IGN)
-    quit_handler = signal.signal(SIGQUIT, SIG_IGN)
-
-    yield
-
-    signal.signal(SIGINT, int_handler)
-    signal.signal(SIGQUIT, quit_handler)
-
-class RootNS(object):
+class RootNS(Closeable):
     """Root network namespace
 
     New commands can be executed in context of root network namespace

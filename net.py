@@ -8,28 +8,7 @@ moved to module switch.
 from subprocess import call
 from procns import NetNS
 
-def id_to_tup(id):
-    """Create a three byte tuple form and integer id"""
-
-    id = int(id)
-
-    aa = id % 256
-    id = (id - aa) / 256
-    bb = id % 256
-    id = (id - bb) / 256
-    cc = id % 256
-
-    return (cc, bb, aa)
-
-def id_to_ip(id):
-    """Create an ip from the an integer id"""
-
-    return "10.%d.%d.%d" % id_to_tup(id)
-
-def id_to_mac(id):
-    """Create a ethernet address from an integer id"""
-
-    return "00:00:00:%02x:%02x:%02x" % id_to_tup(id)
+from misc import id_to_ip, id_to_mac, Closeable
 
 class Host(NetNS):
     """Host is just a process with a separate network namespace"""
@@ -92,11 +71,13 @@ class Host(NetNS):
         cmd = "ifconfig %s up"
         self.call(cmd % dev)
 
-class Link(object):
+class Link(Closeable):
     """A veth link"""
 
     def __init__(self, id, nid1, nid2):
         """Create a new link"""
+
+        Closeable.__init__(self)
 
         self.id = id
         self.dev1 = "%s-%s" % (nid1, id)
@@ -113,10 +94,12 @@ class Link(object):
         cmd = "ip link delete %s 2> /dev/null"
         call(cmd % self.dev1, shell=True)
 
-class Network(object):
+class Network(Closeable):
     """A network is a set of nodes connected by links"""
 
     def __init__(self):
+        Closeable.__init__(self)
+
         self.nodes = {}
         self.links = {}
 
