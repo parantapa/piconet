@@ -8,9 +8,6 @@ moved to module switch.
 from subprocess import call
 from procns import NetNS
 
-import sys
-import atexit
-
 def id_to_tup(id):
     """Create a three byte tuple form and integer id"""
 
@@ -40,11 +37,6 @@ class Host(NetNS):
     ifacenum = 1
 
     def __init__(self, id):
-        """Initialize
-
-        id - Unique host identifier
-        """
-
         NetNS.__init__(self)
 
         self.id = id
@@ -53,32 +45,33 @@ class Host(NetNS):
     def add_link(self, devid, devname):
         """Add a link to host
 
-        devid - Unique link idenifier.
+        devid   - Unique link idenifier.
         devname - Name of the device. E.g (eth0. h0-eth1, wlan0, ...)
         """
 
         self.links[devid] = devname
 
-        cmd = "ip link set {0} netns {1}"
-        call(cmd.format(devname, self.main.pid), shell=True)
+        cmd = "ip link set %s netns %d"
+        call(cmd % (devname, self.main.pid), shell=True)
 
-    def shutdown(self):
-        print "Removing host {0} ...".format(self.id)
-        NetNS.shutdown(self)
+    def close(self):
+        print "Removing host %s ..." % self.id
+
+        NetNS.close(self)
 
     def config_lo(self):
         """Configure the loopback device"""
 
-        self.call("ifconfig lo 127.0.0.1/8 up", shell=True)
+        self.call("ifconfig lo 127.0.0.1/8 up")
 
     def config_link(self, dev, ip=None, mask=8, mac=None):
         """Configure the ip and mac address of network device
 
-        dev - If dev is a known linkid then that device is used. Otherwise
-              this treated as the physical device name.
-        ip - IP address to be assigned.
-        mask - Number of bits of representing network.
-        mac - The mac address to be assigned.
+        dev   - If dev is a known linkid then that device is used. Otherwise
+                this treated as the physical device name.
+        ip    - IP address to be assigned.
+        mask  - Number of bits of representing network.
+        mac   - The mac address to be assigned.
         """
 
         if dev in self.links:
@@ -90,31 +83,48 @@ class Host(NetNS):
 
         Host.ifacenum += 1
 
-        cmd = "ifconfig {0} hw ether {1}"
-        self.call(cmd.format(dev, mac), shell=True)
+        cmd = "ifconfig %s hw ether %s"
+        self.call(cmd % (dev, mac))
         
-        cmd = "ifconfig {0} {1}/{2}"
-        self.call(cmd.format(dev, ip, mask), shell=True)
+        cmd = "ifconfig %s %s/%d"
+        self.call(cmd % (dev, ip, mask))
         
-        cmd = "ifconfig {0} up"
-        self.call(cmd.format(dev), shell=True)
+        cmd = "ifconfig %s up"
+        self.call(cmd % dev)
+
+class Link(object):
+    """A veth link"""
+
+    def __init__(self, id, nid1, nid2):
+        """Create a new link"""
+
+        self.id = id
+        self.dev1 = "%s-%s" % (nid1, id)
+        self.dev2 = "%s-%s" % (nid2, id)
+
+        cmd = "ip link add name %s type veth peer name %s"
+        call(cmd % (self.dev1, self.dev2), shell=True)
+
+    def close(self):
+        """Remove the veth link"""
+
+        print "Removing Link %s ..." % self.id
+
+        cmd = "ip link delete %s 2> /dev/null"
+        call(cmd % self.dev1, shell=True)
 
 class Network(object):
     """A network is a set of nodes connected by links"""
 
     def __init__(self):
-        """Initialize"""
-
         self.nodes = {}
         self.links = {}
-
-        atexit.register(self.shutdown)
 
     def add_node(self, nodeid, node):
         """Add a node with a given node id
 
         nodeid - Unique node identifier.
-        node - The node object. I should support an add_link method.    
+        node - The node object. I should support an add_link method.
         """
 
         if nodeid in self.nodes:
@@ -125,8 +135,8 @@ class Network(object):
     def add_link(self, nid1, nid2, linkid):
         """Create a veth link and connect two nodes
 
-        nid1 - Node id of the first node.
-        nid2 - Node id of the second node.
+        nid1   - Node id of the first node.
+        nid2   - Node id of the second node.
         linkid - Unique id for the link.
         """
 
@@ -137,35 +147,27 @@ class Network(object):
         if linkid in self.links:
             raise ValueError("Duplicate linkid %s" % linkid)
 
-        dev1 = "{0}-{1}".format(nid1, linkid)
-        dev2 = "{0}-{1}".format(nid2, linkid)
-        
-        self.links[linkid] = (dev1, dev2) 
+        link = Link(linkid, nid1, nid2)
+        self.links[linkid] = link
 
-        cmd = "ip link add name {0} type veth peer name {1}"
-        call(cmd.format(dev1, dev2), shell=True)
-        
         node1 = self.nodes[nid1]
         node2 = self.nodes[nid2]
 
-        node1.add_link(linkid, dev1)
-        node2.add_link(linkid, dev2)
+        node1.add_link(linkid, link.dev1)
+        node2.add_link(linkid, link.dev2)
 
-    def shutdown(self):
+    def close(self):
         """Delete all the veth links created
 
         This should not be called manually. This is called automatically at
         exit.
         """
 
-        print "Removing",
-        sys.stdout.flush()
+        print "Removing Network"
 
-        cmd = "ip link delete {0} 2> /dev/null"
-        for devid, devs in self.links.iteritems():
-            print "{0} ...".format(devid),
-            sys.stdout.flush()
-            call(cmd.format(devs[0]), shell=True)
+        for node in self.nodes.itervalues():
+            node.close()
 
-        print ""
+        for link in self.links.itervalues():
+            link.close()
 
