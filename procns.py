@@ -9,7 +9,7 @@ from multiprocessing import Process, JoinableQueue
 from subprocess import Popen
 
 import signal
-from signal import SIGINT, SIGQUIT, SIGKILL, SIG_IGN
+from signal import SIGINT, SIGQUIT, SIGKILL, SIGTERM, SIG_IGN
 
 from misc import exit_msg, unshare_net, block_signal, Closeable
 
