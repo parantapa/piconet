@@ -13,6 +13,8 @@ with Network() as net:
     net.add_link("s0", "s2", "l2")
     net.add_link("s1", "s2", "l3")
 
+    net.add_dev("s2", "eth0", "d0")
+
     net.nodes["h0"].config_link("l0")
     net.nodes["h1"].config_link("l1")
 

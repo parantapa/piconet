@@ -71,12 +71,10 @@ class Host(NetNS):
         cmd = "ifconfig %s up"
         self.call(cmd % dev)
 
-class Link(Closeable):
+class VLink(Closeable):
     """A veth link"""
 
     def __init__(self, id, nid1, nid2):
-        """Create a new link"""
-
         Closeable.__init__(self)
 
         self.id = id
@@ -94,6 +92,23 @@ class Link(Closeable):
         cmd = "ip link delete %s 2> /dev/null"
         call(cmd % self.dev1, shell=True)
 
+class NetDev(Closeable):
+    """A real network device
+
+    This class is used to connect the virtual network to the real one
+    """
+
+    def __init__(self, id, dev):
+        Closeable.__init__(self)
+
+        self.id = id
+        self.dev = dev
+
+    def close(self):
+        """Print a disconnecting message and exit"""
+
+        print "Disconnecting %s ..." % self.dev
+
 class Network(Closeable):
     """A network is a set of nodes connected by links"""
 
@@ -102,6 +117,7 @@ class Network(Closeable):
 
         self.nodes = {}
         self.links = {}
+        self.ndevs = {}
 
     def add_node(self, nodeid, node):
         """Add a node with a given node id
@@ -130,7 +146,7 @@ class Network(Closeable):
         if linkid in self.links:
             raise ValueError("Duplicate linkid %s" % linkid)
 
-        link = Link(linkid, nid1, nid2)
+        link = VLink(linkid, nid1, nid2)
         self.links[linkid] = link
 
         node1 = self.nodes[nid1]
@@ -138,12 +154,32 @@ class Network(Closeable):
 
         node1.add_link(linkid, link.dev1)
         node2.add_link(linkid, link.dev2)
+        
+    def add_dev(self, nid, dev, devid):
+        """Connect a real device to the network
+
+        nid1   - Node id of the connected node.
+        dev    - The name of the real device.
+        devid - Unique id for the link.
+        """
+
+        if nid not in self.nodes:
+            raise KeyError("Invalid nodeid %s" % nid)
+        if devid in self.ndevs:
+            raise ValueError("Duplicate linkid %s" % devid)
+
+        ndev = NetDev(devid, dev)
+        self.ndevs[devid] = ndev
+
+        node = self.nodes[nid]
+        node.add_link(devid, ndev.dev)
 
     def close(self):
         """Delete all the veth links created
 
-        This should not be called manually. This is called automatically at
-        exit.
+        Remember to call this or you shall have many veth pairs lying arround.
+        Make use of the context manager using _wait_ to make sure stuff is
+        cleaned.
         """
 
         print "Removing Network"
@@ -153,4 +189,6 @@ class Network(Closeable):
 
         for link in self.links.itervalues():
             link.close()
-
+        
+        for ndev in self.ndevs.itervalues():
+            ndev.close()
