@@ -53,14 +53,18 @@ class RootNS(Closeable):
             print "[%d] Started" % proc.pid
             self.jobs[proc.pid] = proc
 
-    def _wait(self, killall=False):
+    def _wait(self, shutdown=False):
         """Wait for any finished background process
 
-        killall - If true send SIGKILL all processes before waiting on them.
+        shutdown - If true kill all process with SIGTERM then SIGKILL before waiting on them.
         """
 
-        if killall:
-            for pid, proc in self.jobs.iteritems():
+        if shutdown:
+            for proc in self.jobs.itervalues():
+                if proc.poll() is None:
+                    proc.send_signal(SIGTERM)
+
+            for proc in self.jobs.itervalues():
                 if proc.poll() is None:
                     proc.send_signal(SIGKILL)
                     proc.wait()
