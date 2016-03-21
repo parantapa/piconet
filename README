@@ -1,8 +1,7 @@
 Piconet is Mininet clone.
 
-I personally found Mininet code quite convoluted, complex, and unnecessarily
-big. Also I wanted to use Open vSwitch which at the time of writing is not
-available out of box.
+I wanted to use Open vSwitch which at the time of writing
+is not available out of box with mininet.
 
 So to create a better alternative this is my first try to create a base.
 
